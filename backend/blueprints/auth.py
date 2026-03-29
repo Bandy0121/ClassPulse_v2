@@ -1,134 +1,46 @@
-"""
-认证蓝图 - 处理用户登录、注册、JWT 令牌等认证相关操作
-=======================================================
-
-本蓝图提供以下接口：
-- 教师注册 /login /register
-- 学生注册 /login /register
-- 刷新令牌 /refresh
-- 获取当前用户信息 /me
-- 退出登录 /logout
-
-使用方式：
-    from blueprints.auth import auth_bp
-    app.register_blueprint(auth_bp, url_prefix='/api/auth')
-
-API 前缀：/api/auth
-"""
-
 from flask import Blueprint, request, jsonify, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import re
 
-# 导入扩展和模型
 from extensions import db
 from models.user import Teacher, Student
 
-# 导入工具函数
 from utils.auth import generate_jwt_token, generate_refresh_token, get_current_user
 from utils.response import success_response, error_response, validation_error_response
 
-# 创建蓝图（url 前缀仅在 app.register_blueprint 中指定）
 auth_bp = Blueprint('auth', __name__)
 
 
-# ==================== 辅助函数 ====================
 
 def validate_email(email: str) -> bool:
-    """
-    验证邮箱格式是否正确
-
-    参数：
-        email: 待验证的邮箱地址
-
-    返回：
-        bool: 邮箱格式是否有效
-
-    支持的邮箱格式：
-    - simple@example.com
-    - very.common@disposable.email
-    - simple@subdomain.example.com
-    """
-    # 简单的邮箱正则表达式
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(pattern, email) is not None
 
 
 def validate_password(password: str) -> tuple:
-    """
-    验证密码强度
-
-    密码要求：
-    - 长度至少 6 个字符
-    - 包含字母和数字（可选增强）
-
-    参数：
-        password: 待验证的密码
-
-    返回：
-        tuple: (is_valid, message)
-        - is_valid: bool, 密码是否有效
-        - message: str, 验证消息
-    """
     if len(password) < 6:
         return False, "密码长度至少为 6 个字符"
 
-    # 可选：检查是否包含字母和数字
     has_letter = any(c.isalpha() for c in password)
     has_digit = any(c.isdigit() for c in password)
 
     if not (has_letter and has_digit):
-        # 这里暂时不做强制要求，只作为警告
         pass
 
     return True, "密码有效"
 
 
-# ==================== 教师认证接口 ====================
 
 @auth_bp.route('/teacher/register', methods=['POST'])
 def teacher_register():
-    """
-    教师注册接口
-
-    请求方式：POST
-    请求路径：/api/auth/teacher/register
-
-    请求体（JSON）：
-    {
-        "username": "teacher123",       // 用户名（必填）
-        "password": "password123",      // 密码（必填）
-        "email": "teacher@example.com", // 邮箱（必填）
-        "real_name": "张老师"           // 真实姓名（必填）
-    }
-
-    响应格式：
-    {
-        "code": 201,
-        "message": "注册成功",
-        "data": {
-            "id": 1,
-            "username": "teacher123",
-            "email": "teacher@example.com",
-            "real_name": "张老师"
-        }
-    }
-
-    错误响应：
-    - 400: 用户名或邮箱已存在
-    - 422: 参数验证失败
-    - 500: 服务器内部错误
-    """
     try:
-        # 1. 获取请求数据
         data = request.get_json()
 
         # 检查必要字段
         if not data:
             return error_response("请求体不能为空", 400, http_status=400)
 
-        # 2. 提取和验证字段
         username = data.get('username', '').strip()
         password = data.get('password', '')
         email = data.get('email', '').strip().lower()
@@ -163,7 +75,6 @@ def teacher_register():
         if errors:
             return validation_error_response(errors)
 
-        # 3. 检查用户是否已存在
         existing_teacher = Teacher.query.filter(
             (Teacher.username == username) | (Teacher.email == email)
         ).first()
@@ -174,7 +85,6 @@ def teacher_register():
             else:
                 return error_response('邮箱已被注册', 400, http_status=400)
 
-        # 4. 创建新教师用户
         # 生成密码哈希（重要：永远不要存储明文密码）
         password_hash = generate_password_hash(password)
 
@@ -185,11 +95,9 @@ def teacher_register():
             real_name=real_name
         )
 
-        # 5. 保存到数据库
         db.session.add(teacher)
         db.session.commit()
 
-        # 6. 返回成功响应
         return success_response(
             data=teacher.to_dict(),
             message='注册成功',
@@ -211,51 +119,15 @@ def teacher_register():
 
 @auth_bp.route('/teacher/login', methods=['POST'])
 def teacher_login():
-    """
-    教师登录接口
-
-    请求方式：POST
-    请求路径：/api/auth/teacher/login
-
-    请求体（JSON）：
-    {
-        "username": "teacher123",  // 用户名（必填）
-        "password": "password123"  // 密码（必填）
-    }
-
-    响应格式：
-    {
-        "code": 200,
-        "message": "登录成功",
-        "data": {
-            "token": "eyJhbGciOiJIUzI1NiIs...",  // JWT 访问令牌
-            "refresh_token": "eyJhbGciOiJIUzI1NiIs...",  // JWT 刷新令牌
-            "user": {
-                "id": 1,
-                "username": "teacher123",
-                "email": "teacher@example.com",
-                "real_name": "张老师"
-            }
-        }
-    }
-
-    错误响应：
-    - 401: 用户名或密码错误
-    - 422: 参数验证失败
-    - 500: 服务器内部错误
-    """
     try:
-        # 1. 获取请求数据
         data = request.get_json()
 
         if not data:
             return error_response("请求体不能为空", 400, http_status=400)
 
-        # 2. 提取字段
         username = data.get('username', '').strip()
         password = data.get('password', '')
 
-        # 3. 参数验证
         errors = {}
         if not username:
             errors['username'] = '用户名不能为空'
@@ -265,10 +137,8 @@ def teacher_login():
         if errors:
             return validation_error_response(errors)
 
-        # 4. 查找用户
         teacher = Teacher.query.filter_by(username=username).first()
 
-        # 5. 验证密码
         # 注意：使用 check_password_hash 验证哈希密码
         # 永远不要直接比较密码字符串
         if not teacher or not teacher.check_password(password):
@@ -278,11 +148,9 @@ def teacher_login():
                 http_status=401
             )
 
-        # 6. 生成 JWT 令牌
         token = generate_jwt_token(teacher.id, 'teacher')
         refresh_token = generate_refresh_token(teacher.id, 'teacher')
 
-        # 7. 返回成功响应
         return success_response({
             'token': token,
             'refresh_token': refresh_token,
@@ -302,38 +170,10 @@ def teacher_login():
 
 @auth_bp.route('/teacher/me', methods=['GET'])
 def teacher_get_profile():
-    """
-    获取当前教师信息接口
-
-    请求方式：GET
-    请求路径：/api/auth/teacher/me
-
-    请求头：
-    Authorization: Bearer <JWT Token>
-
-    响应格式：
-    {
-        "code": 200,
-        "message": "success",
-        "data": {
-            "id": 1,
-            "username": "teacher123",
-            "email": "teacher@example.com",
-            "real_name": "张老师"
-        }
-    }
-
-    错误响应：
-    - 401: 未授权（Token 无效或过期）
-    - 404: 用户不存在
-    - 500: 服务器内部错误
-    """
     try:
-        # 1. 获取当前用户（通过 JWT 令牌）
         # get_current_user() 函数会自动从 Token 中提取用户信息
         teacher = get_current_user()
 
-        # 2. 检查用户是否存在
         if not teacher:
             return error_response(
                 message='用户不存在',
@@ -341,7 +181,6 @@ def teacher_get_profile():
                 http_status=404
             )
 
-        # 3. 返回用户信息
         return success_response(teacher.to_dict())
 
     except Exception as e:
@@ -354,51 +193,15 @@ def teacher_get_profile():
         )
 
 
-# ==================== 学生认证接口 ====================
 
 @auth_bp.route('/student/register', methods=['POST'])
 def student_register():
-    """
-    学生注册接口
-
-    请求方式：POST
-    请求路径：/api/auth/student/register
-
-    请求体（JSON）：
-    {
-        "username": "student123",       // 用户名（必填）
-        "password": "password123",      // 密码（必填）
-        "email": "student@example.com", // 邮箱（必填）
-        "real_name": "张三"             // 真实姓名（必填）
-        "student_id": "2023001234"     // 学号（必填）
-    }
-
-    响应格式：
-    {
-        "code": 201,
-        "message": "注册成功",
-        "data": {
-            "id": 1,
-            "username": "student123",
-            "email": "student@example.com",
-            "real_name": "张三",
-            "student_id": "2023001234"
-        }
-    }
-
-    错误响应：
-    - 400: 用户名、邮箱或学号已存在
-    - 422: 参数验证失败
-    - 500: 服务器内部错误
-    """
     try:
-        # 1. 获取请求数据
         data = request.get_json()
 
         if not data:
             return error_response("请求体不能为空", 400, http_status=400)
 
-        # 2. 提取和验证字段
         username = data.get('username', '').strip()
         password = data.get('password', '')
         email = data.get('email', '').strip().lower()
@@ -436,7 +239,6 @@ def student_register():
         if errors:
             return validation_error_response(errors)
 
-        # 3. 检查用户是否已存在
         existing_student = Student.query.filter(
             (Student.username == username) |
             (Student.email == email) |
@@ -451,7 +253,6 @@ def student_register():
             else:
                 return error_response('学号已被注册', 400, http_status=400)
 
-        # 4. 创建新学生用户
         password_hash = generate_password_hash(password)
 
         student = Student(
@@ -462,11 +263,9 @@ def student_register():
             student_id=student_id
         )
 
-        # 5. 保存到数据库
         db.session.add(student)
         db.session.commit()
 
-        # 6. 返回成功响应
         return success_response(
             data=student.to_dict(),
             message='注册成功',
@@ -486,52 +285,15 @@ def student_register():
 
 @auth_bp.route('/student/login', methods=['POST'])
 def student_login():
-    """
-    学生登录接口
-
-    请求方式：POST
-    请求路径：/api/auth/student/login
-
-    请求体（JSON）：
-    {
-        "username": "student123",  // 用户名（必填）
-        "password": "password123"  // 密码（必填）
-    }
-
-    响应格式：
-    {
-        "code": 200,
-        "message": "登录成功",
-        "data": {
-            "token": "eyJhbGciOiJIUzI1NiIs...",
-            "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
-            "user": {
-                "id": 1,
-                "username": "student123",
-                "email": "student@example.com",
-                "real_name": "张三",
-                "student_id": "2023001234"
-            }
-        }
-    }
-
-    错误响应：
-    - 401: 用户名或密码错误
-    - 422: 参数验证失败
-    - 500: 服务器内部错误
-    """
     try:
-        # 1. 获取请求数据
         data = request.get_json()
 
         if not data:
             return error_response("请求体不能为空", 400, http_status=400)
 
-        # 2. 提取字段
         username = data.get('username', '').strip()
         password = data.get('password', '')
 
-        # 3. 参数验证
         errors = {}
         if not username:
             errors['username'] = '用户名不能为空'
@@ -541,10 +303,8 @@ def student_login():
         if errors:
             return validation_error_response(errors)
 
-        # 4. 查找用户
         student = Student.query.filter_by(username=username).first()
 
-        # 5. 验证密码
         if not student or not student.check_password(password):
             return error_response(
                 message='用户名或密码错误',
@@ -552,11 +312,9 @@ def student_login():
                 http_status=401
             )
 
-        # 6. 生成 JWT 令牌
         token = generate_jwt_token(student.id, 'student')
         refresh_token = generate_refresh_token(student.id, 'student')
 
-        # 7. 返回成功响应
         return success_response({
             'token': token,
             'refresh_token': refresh_token,
@@ -576,35 +334,7 @@ def student_login():
 
 @auth_bp.route('/student/me', methods=['GET'])
 def student_get_profile():
-    """
-    获取当前学生信息接口
-
-    请求方式：GET
-    请求路径：/api/auth/student/me
-
-    请求头：
-    Authorization: Bearer <JWT Token>
-
-    响应格式：
-    {
-        "code": 200,
-        "message": "success",
-        "data": {
-            "id": 1,
-            "username": "student123",
-            "email": "student@example.com",
-            "real_name": "张三",
-            "student_id": "2023001234"
-        }
-    }
-
-    错误响应：
-    - 401: 未授权
-    - 404: 用户不存在
-    - 500: 服务器内部错误
-    """
     try:
-        # 1. 获取当前用户
         student = get_current_user()
 
         if not student:
@@ -614,7 +344,6 @@ def student_get_profile():
                 http_status=404
             )
 
-        # 2. 返回用户信息
         return success_response(student.to_dict())
 
     except Exception as e:
@@ -627,38 +356,12 @@ def student_get_profile():
         )
 
 
-# ==================== 通用接口 ====================
 
 @auth_bp.route('/refresh', methods=['POST'])
 def refresh_token():
-    """
-    刷新 JWT 令牌接口
-
-    当访问令牌过期时，可以使用刷新令牌获取新的访问令牌。
-
-    请求方式：POST
-    请求路径：/api/auth/refresh
-
-    请求头：
-    Authorization: Bearer <Refresh Token>
-
-    响应格式：
-    {
-        "code": 200,
-        "message": "success",
-        "data": {
-            "token": "eyJhbGciOiJIUzI1NiIs..."  // 新的访问令牌
-        }
-    }
-
-    错误响应：
-    - 401: 刷新令牌无效或过期
-    - 500: 服务器内部错误
-    """
     from flask_jwt_extended import jwt_required, get_jwt_identity
 
     try:
-        # 1. 验证刷新令牌
         # jwt_required() 装饰器会自动验证令牌
         @jwt_required()
         def get_new_token():
@@ -673,7 +376,6 @@ def refresh_token():
                     http_status=401
                 )
 
-            # 2. 生成新的访问令牌
             new_token = generate_jwt_token(user_id, user_type)
 
             return success_response(
@@ -695,39 +397,14 @@ def refresh_token():
 
 @auth_bp.route('/logout', methods=['POST'])
 def logout():
-    """
-    退出登录接口
-
-    注销当前用户的登录状态（将令牌加入黑名单）。
-
-    请求方式：POST
-    请求路径：/api/auth/logout
-
-    请求头：
-    Authorization: Bearer <JWT Token>
-
-    响应格式：
-    {
-        "code": 200,
-        "message": "退出登录成功",
-        "data": null
-    }
-
-    错误响应：
-    - 401: 未授权
-    - 500: 服务器内部错误
-    """
     from flask_jwt_extended import jwt_required, get_jwt
     from utils.auth import RevokeToken
 
     try:
-        # 1. 验证令牌
         @jwt_required()
         def do_logout():
-            # 2. 获取令牌的 JTI（唯一标识）
             jti = get_jwt()['jti']
 
-            # 3. 将令牌加入黑名单
             RevokeToken(jti)
 
             return success_response(None, '退出登录成功')

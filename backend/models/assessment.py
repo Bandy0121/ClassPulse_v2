@@ -1,19 +1,3 @@
-"""
-测试相关模型 - 定义随堂测试、题目和答案
-========================================
-
-本文件定义了三个模型：
-- Assessment: 随堂测试主表
-- Question: 测试题目表
-- Answer: 学生答案表
-
-这些模型构成了完整的测试功能：
-1. 教师创建 Assessment（测试）
-2. 为测试添加多个 Question（题目）
-3. 学生参与测试，提交 Answer（答案）
-4. 系统自动批改并记录成绩
-"""
-
 from extensions import db
 from datetime import datetime
 from typing import Optional, Dict, Any, List
@@ -22,34 +6,13 @@ from utils.datetime_display import format_stored_utc_as_local
 
 
 class Assessment(db.Model):
-    """
-    随堂测试模型
-
-    对应数据库表：assessments
-
-    字段说明：
-    ---------
-    - id: 主键
-    - class_id: 所属班级ID
-    - title: 测试标题
-    - description: 测试描述
-    - start_time: 开始时间
-    - end_time: 结束时间
-    - duration_minutes: 考试时长（分钟）
-    - max_attempts: 最大尝试次数
-    - show_correct_after_submit: 提交后是否显示正确答案
-    - is_published: 是否已发布
-    - created_at: 创建时间
-    """
     __tablename__ = 'assessments'
 
-    # ========== 字段定义 ==========
     id = db.Column(
         db.Integer,
         primary_key=True,
         comment='测试ID'
     )
-    """主键，自增 ID"""
 
     class_id = db.Column(
         db.Integer,
@@ -57,146 +20,67 @@ class Assessment(db.Model):
         nullable=False,
         comment='班级ID'
     )
-    """
-    所属班级的 ID
-
-    关系：
-    - 一个班级可以有多个测试
-    - 删除班级时，相关测试也会被删除（ondelete='CASCADE'）
-    """
-
     title = db.Column(
         db.String(200),
         nullable=False,
         comment='测试标题'
     )
-    """
-    测试标题，例如：
-    - "第一单元测试"
-    - "Python 基础知识测验"
-    - "随堂小测 2024-01-15"
-    """
-
     description = db.Column(
         db.Text,
         comment='测试描述'
     )
-    """
-    测试的详细描述，可选
-    可以包含：测试范围、注意事项、评分标准等
-    """
-
     start_time = db.Column(
         db.DateTime,
         nullable=False,
         comment='开始时间'
     )
-    """
-    测试开始时间
-
-    规则：
-    - 在开始时间之前，学生无法看到题目
-    - 在开始时间之后，学生可以参与测试
-    """
-
     end_time = db.Column(
         db.DateTime,
         nullable=False,
         comment='结束时间'
     )
-    """
-    测试结束时间
-
-    规则：
-    - 在结束时间之后，学生无法提交答案
-    - 系统自动停止接收答案
-    """
-
     duration_minutes = db.Column(
         db.Integer,
         default=5,
         comment='持续时间(分钟)'
     )
-    """
-    建议的考试时长（分钟）
-    注意：这不是强制限制，只是提示信息
-    真正的限制由 start_time 和 end_time 控制
-    """
-
     max_attempts = db.Column(
         db.SmallInteger,
         default=1,
         comment='最大尝试次数'
     )
-    """
-    学生最多可以尝试的次数
-    - 1: 只能提交一次（最常见）
-    - 3: 可以提交最多 3 次，取最高分
-    """
-
     show_correct_after_submit = db.Column(
         db.Boolean,
         default=True,
         comment='提交后是否显示正确答案'
     )
-    """
-    学生提交后是否能查看正确答案
-    - True: 提交后立即显示正确答案和解析
-    - False: 提交后只显示分数，不显示具体对错
-    """
-
     is_published = db.Column(
         db.Boolean,
         default=False,
         comment='是否已发布'
     )
-    """
-    测试是否已发布
-    - False: 草稿状态，只有教师能看到
-    - True: 已发布，学生可以看到并参与
-
-    发布流程：
-    1. 教师创建测试（is_published=False）
-    2. 教师编辑题目
-    3. 教师点击发布（is_published=True）
-    4. 学生收到通知，可以开始答题
-    """
-
     created_at = db.Column(
         db.DateTime,
         default=datetime.utcnow,
         comment='创建时间'
     )
-    """测试创建时间"""
 
-    # ========== 关系定义 ==========
     questions = db.relationship(
         'Question',
         backref='assessment',
         lazy='dynamic',
         cascade='all, delete-orphan'
     )
-    """
-    关联到 Question 模型（一个测试多个题目）
-
-    使用示例：
-        assessment = Assessment.query.get(1)
-        all_questions = assessment.questions.all()
-    """
-
     answers = db.relationship(
         'Answer',
         backref='assessment',
         lazy='dynamic'
     )
-    """该测试的所有学生答案"""
 
-    # ========== 方法定义 ==========
     def __repr__(self) -> str:
         return f'<Assessment {self.title}>'
 
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
         return {
             'id': self.id,
             'class_id': self.class_id,
@@ -212,11 +96,9 @@ class Assessment(db.Model):
         }
 
     def get_question_count(self) -> int:
-        """获取题目数量"""
         return self.questions.count()
 
     def get_student_count(self) -> int:
-        """参与学生数量"""
         return db.session.query(db.func.count(db.distinct(Answer.student_id)))\
             .filter(Answer.assessment_id == self.id)\
             .scalar()
@@ -281,31 +163,13 @@ class Assessment(db.Model):
 
 
 class Question(db.Model):
-    """
-    测试题目模型
-
-    对应数据库表：questions
-
-    字段说明：
-    ---------
-    - id: 主键
-    - assessment_id: 所属测试ID
-    - question_type: 题型（单选/多选）
-    - content: 题目内容
-    - option_a/b/c/d: 选项内容
-    - correct_answer: 正确答案
-    - score: 分值
-    - created_at: 创建时间
-    """
     __tablename__ = 'questions'
 
-    # ========== 字段定义 ==========
     id = db.Column(
         db.Integer,
         primary_key=True,
         comment='题目ID'
     )
-    """主键，自增 ID"""
 
     assessment_id = db.Column(
         db.Integer,
@@ -313,108 +177,65 @@ class Question(db.Model):
         nullable=False,
         comment='测试ID'
     )
-    """
-    所属测试的 ID
-
-    关系：
-    - 一个测试可以有多个题目
-    - 删除测试时，相关题目也会被删除
-    """
-
     question_type = db.Column(
         db.SmallInteger,
         default=1,
         comment='题型: 1-单选, 2-多选'
     )
-    """
-    题目类型
-    - 1: 单选题（只有一个正确答案）
-    - 2: 多选题（有多个正确答案）
-    """
-
     content = db.Column(
         db.Text,
         nullable=False,
         comment='题目内容'
     )
-    """
-    题目正文内容
-    可以包含普通文本、数学公式、代码等
-    """
-
     option_a = db.Column(
         db.String(500),
         nullable=False,
         comment='选项A'
     )
-    """选项 A 的内容"""
 
     option_b = db.Column(
         db.String(500),
         nullable=False,
         comment='选项B'
     )
-    """选项 B 的内容"""
 
     option_c = db.Column(
         db.String(500),
         comment='选项C'
     )
-    """选项 C 的内容（可选）"""
 
     option_d = db.Column(
         db.String(500),
         comment='选项D'
     )
-    """选项 D 的内容（可选）"""
 
     correct_answer = db.Column(
         db.String(50),
         nullable=False,
         comment='正确答案'
     )
-    """
-    正确答案
-
-    格式：
-    - 单选题: "A" 或 "B" 或 "C" 或 "D"
-    - 多选题: "A,B" 或 "A,C" 或 "A,B,C" 等
-
-    注意：答案必须是大写字母，多个答案用逗号分隔
-    """
-
     score = db.Column(
         db.DECIMAL(5, 2),
         default=10.00,
         comment='分值'
     )
-    """
-    该题的分值
-    默认 10 分，可以根据题目难度调整
-    """
-
     created_at = db.Column(
         db.DateTime,
         default=datetime.utcnow,
         comment='创建时间'
     )
-    """题目创建时间"""
 
-    # ========== 关系定义 ==========
     answers = db.relationship(
         'Answer',
         backref='question',
         lazy='dynamic',
         cascade='all, delete-orphan'
     )
-    """该题目的所有学生答案"""
 
-    # ========== 方法定义 ==========
     def __repr__(self) -> str:
         return f'<Question {self.id} - {self.content[:30]}...>'
 
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
         return {
             'id': self.id,
             'assessment_id': self.assessment_id,
@@ -464,32 +285,13 @@ class Question(db.Model):
 
 
 class Answer(db.Model):
-    """
-    学生答案模型
-
-    对应数据库表：answers
-
-    字段说明：
-    ---------
-    - id: 主键
-    - assessment_id: 测试ID
-    - question_id: 题目ID
-    - student_id: 学生ID
-    - selected_option: 学生选择的选项
-    - is_correct: 是否正确
-    - submitted_at: 提交时间
-    - response_time_seconds: 答题耗时
-    - attempt_number: 尝试次数
-    """
     __tablename__ = 'answers'
 
-    # ========== 字段定义 ==========
     id = db.Column(
         db.Integer,
         primary_key=True,
         comment='答案ID'
     )
-    """主键，自增 ID"""
 
     assessment_id = db.Column(
         db.Integer,
@@ -497,7 +299,6 @@ class Answer(db.Model):
         nullable=False,
         comment='测试ID'
     )
-    """所属测试的 ID"""
 
     question_id = db.Column(
         db.Integer,
@@ -505,7 +306,6 @@ class Answer(db.Model):
         nullable=False,
         comment='题目ID'
     )
-    """所答题目的 ID"""
 
     student_id = db.Column(
         db.Integer,
@@ -513,64 +313,38 @@ class Answer(db.Model):
         nullable=False,
         comment='学生ID'
     )
-    """回答问题的学生 ID"""
 
     selected_option = db.Column(
         db.String(50),
         nullable=False,
         comment='选择的答案'
     )
-    """
-    学生选择的答案
-    格式：单选 "A"，多选 "A,B"
-    """
-
     is_correct = db.Column(
         db.Boolean,
         default=False,
         comment='是否正确'
     )
-    """
-    答案是否正确
-    系统会自动判断并设置这个字段
-    """
-
     submitted_at = db.Column(
         db.DateTime,
         default=datetime.utcnow,
         comment='提交时间'
     )
-    """答案提交时间"""
 
     response_time_seconds = db.Column(
         db.Integer,
         comment='答题耗时(秒)'
     )
-    """
-    答题耗时（从显示题目到提交的秒数）
-    用于分析学生的答题速度
-    """
-
     attempt_number = db.Column(
         db.SmallInteger,
         default=1,
         comment='尝试次数'
     )
-    """
-    这是第几次尝试
-    - 1: 第一次提交
-    - 2: 第二次提交（如果 max_attempts > 1）
-    """
-
-    # ========== 关系定义 ==========
     # 通过 Question 和 Assessment 的 backref 已经有反向引用
 
-    # ========== 方法定义 ==========
     def __repr__(self) -> str:
         return f'<Answer Student {self.student_id} - Question {self.question_id}>'
 
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
         return {
             'id': self.id,
             'assessment_id': self.assessment_id,
