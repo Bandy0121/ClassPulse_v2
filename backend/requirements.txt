@@ -1,0 +1,23 @@
+# Python 依赖包
+# ==========================================
+# Web 框架核心
+Flask==3.0.0
+
+# 数据库相关
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.5
+PyMySQL==1.1.0
+
+# 认证相关
+Flask-JWT-Extended==4.6.0
+werkzeug==3.0.1
+
+# 数据验证
+pydantic==2.5.3
+
+# 其他工具
+python-dotenv==1.0.0
+flask-cors==4.0.0
+
+# 生产环境
+gunicorn==21.2.0
