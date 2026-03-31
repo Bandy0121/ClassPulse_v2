@@ -4,6 +4,7 @@ from datetime import timedelta
 
 class BaseConfig:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'classpulse-secret-key-2024-change-in-production'
+    JWT_IDENTITY_CLAIM = 'identity'
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=2)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=7)
 
